@@ -1,0 +1,99 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using TRAININGAPI.Common;
+using TRAININGAPI.Common.Interface;
+using TRAININGAPI.Data;
+using System.Text;
+using Microsoft.AspNetCore.Cors;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
+
+var builder = WebApplication.CreateBuilder(args);
+IConfigurationRoot configuration = new ConfigurationBuilder().SetBasePath(AppDomain.CurrentDomain.BaseDirectory).AddJsonFile("appsettings.json").Build();
+// Add services to the container.
+
+builder.Services.AddControllers();
+var connection = configuration.GetConnectionString("TRAININGConnection");
+builder.Services.AddDbContext<CiceDbContext>(options => options.UseNpgsql(connection));
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy( builder =>
+    {
+        var frontendURL = configuration.GetValue<string>("frontend_url");
+        builder.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+    });
+});
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    options.RequireHttpsMetadata = false;
+    options.SaveToken = true;
+    options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters()
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidAudience = configuration["Jwt:Audience"],
+        ValidIssuer = configuration["Jwt:Issuer"],
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]))
+    };
+});
+//builder.Services.AddCors(p => p.AddPolicy("corsapp", builder =>
+//{
+//    builder.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+//}));
+builder.Services.AddScoped<IFileStorageService, FileStorageService>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 3048576000; // tối đa 3 GB
+});
+
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add(typeof(MyExceptionFilter));
+   
+});
+
+// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+#pragma warning disable CA1416 // Validate platform compatibility
+builder.WebHost.UseHttpSys();
+builder.WebHost.UseIIS();
+var app = builder.Build();
+// Configure the HTTP request pipeline.
+//if (app.Environment.IsDevelopment())
+//{
+//    app.UseSwagger();
+//    app.UseSwaggerUI();
+//}
+app.UseSwagger();
+app.UseSwaggerUI();
+app.UseHostFiltering();
+app.UseHttpsRedirection();
+app.UseCors();
+//app.UseCors("corsapp");
+app.UseStaticFiles();
+app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseEndpoints(options =>
+{
+    options.MapControllers();
+});
+
+
+app.MapControllers();
+
+
+//if (app.Environment.IsProduction())
+//{
+//    Task<int> task = new TRAININGAPI.Common.Jobs.TaskScheduler().Start();
+//}
+Task<int> task = new TRAININGAPI.Common.Jobs.TaskScheduler().Start();
+
+app.Run();
